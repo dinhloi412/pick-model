@@ -1,0 +1,1 @@
+python test.py --checkpoint /content/drive/MyDrive/Dev-ML/pic/saved/models/PICK_Default/test_1018_031027/checkpoint-epoch60.pth --boxes_transcripts /content/drive/MyDrive/Dev-ML/test/boxes_and_transcripts --images_path /content/drive/MyDrive/Dev-ML/test/images --gpu 0 --output_folder /content/output --batch_size 1

@@ -1,0 +1,10 @@
+torchvision
+tabulate
+overrides
+opencv_python
+numpy
+pandas
+allennlp
+torchtext
+tqdm
+torch==2.2.0
