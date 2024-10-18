@@ -16,8 +16,8 @@ import numpy as np
 from utils.entities_list import Entities_list
 from utils.class_utils import keys_vocab_cls, iob_labels_vocab_cls, entities_vocab_cls
 
-MAX_BOXES_NUM = 130  # limit max number boxes of every documents
-MAX_TRANSCRIPT_LEN = 70  # limit max length text of every box
+MAX_BOXES_NUM = 70  # limit max number boxes of every documents
+MAX_TRANSCRIPT_LEN = 50  # limit max length text of every box
 
 # text string label converter
 TextSegmentsField = Field(sequential=True, use_vocab=True, include_lengths=True, batch_first=True)
@@ -29,10 +29,11 @@ IOBTagsField.vocab = iob_labels_vocab_cls
 
 class Document:
     def __init__(self, boxes_and_transcripts_file: Path, image_file: Path,
-                 resized_image_size: Tuple[int, int] = (560,784),
+                 resized_image_size: Tuple[int, int] = (480, 960),
                  iob_tagging_type: str = 'box_level', entities_file: Path = None, training: bool = True,
-                 image_index=None, max_boxes_num = MAX_BOXES_NUM, max_transcript_len = MAX_TRANSCRIPT_LEN):
+                 image_index=None):
         '''
+        An item returned by dataset.
 
         :param boxes_and_transcripts_file: gt or ocr results file
         :param image_file: whole images file
@@ -49,17 +50,24 @@ class Document:
             'iob tagging type {} is not supported'.format(iob_tagging_type)
         self.iob_tagging_type = iob_tagging_type
 
+        # For easier debug:
+        # we will know what we are running on.
+        self.image_filename = image_file.as_posix()
+
         try:
             # read boxes, transcripts, and entity types of boxes in one documents from boxes_and_transcripts file
             # match with regex pattern: index,x1,y1,x2,y2,x3,y3,x4,y4,transcript,type from boxes_and_transcripts tsv file
             # data format as [(index, points, transcription, entity_type)...]
             if self.training:
+                # boxes_and_transcripts_data = [(index, [x1, y1, ...], transcript, entity_type), ...]
                 boxes_and_transcripts_data = read_gt_file_with_box_entity_type(boxes_and_transcripts_file.as_posix())
             else:
                 boxes_and_transcripts_data = read_ocr_file_without_box_entity_type(
                     boxes_and_transcripts_file.as_posix())
 
+            # Sort the box based on the position.
             boxes_and_transcripts_data = sort_box_with_list(boxes_and_transcripts_data)
+
             # read image
             image = cv2.imread(image_file.as_posix())
         except Exception as e:
@@ -80,8 +88,9 @@ class Document:
                 boxes.append(points)
                 transcripts.append(transcript)
 
-        boxes_num = min(len(boxes), max_boxes_num)
-        transcript_len = min(max([len(t) for t in transcripts[:boxes_num]]), max_transcript_len)
+        # Limit the number of boxes and number of transcripts to process.
+        boxes_num = min(len(boxes), MAX_BOXES_NUM)
+        transcript_len = min(max([len(t) for t in transcripts[:boxes_num]]), MAX_TRANSCRIPT_LEN)
         mask = np.zeros((boxes_num, transcript_len), dtype=int)
 
         relation_features = np.zeros((boxes_num, boxes_num, 6))
@@ -89,16 +98,17 @@ class Document:
         try:
 
             height, width, _ = image.shape
+
             # resize image
             image = cv2.resize(image, self.resized_image_size, interpolation=cv2.INTER_LINEAR)
             x_scale = self.resized_image_size[0] / width
             y_scale = self.resized_image_size[1] / height
 
-            # get min area box for each boxes, for calculate initial relation features
+            # get min area box for each (original) boxes, for calculate initial relation features
             min_area_boxes = [cv2.minAreaRect(np.array(box, dtype=np.float32).reshape(4, 2)) for box in
                               boxes[:boxes_num]]
 
-            # calculate  resized image box coordinate, and initial relation features between boxes (nodes)
+            # calculate resized image box coordinate, and initial relation features between boxes (nodes)
             resized_boxes = []
             for i in range(boxes_num):
                 box_i = boxes[i]
@@ -114,14 +124,16 @@ class Document:
                 resized_boxes.append(resized_box_i)
 
                 # enumerate each box, calculate relation features between i and other nodes.
+                # formula (9)
                 self.relation_features_between_ij_nodes(boxes_num, i, min_area_boxes, relation_features, transcript_i,
                                                         transcripts)
 
             relation_features = normalize_relation_features(relation_features, width=width, height=height)
+            # The length of texts of each segment.
             text_segments = [list(trans) for trans in transcripts[:boxes_num]]
 
             if self.training:
-                # assign iob label to input text though exactly match way, this process needs entity-level label
+                # assign iob label to input text through exactly match way, this process needs entity-level label
                 if self.iob_tagging_type != 'box_level':
                     with entities_file.open() as f:
                         entities = json.load(f)
@@ -134,6 +146,7 @@ class Document:
                     # convert transcripts to iob label using document level tagging match method, all transcripts will
                     # be concatenated as a sequences
                     iob_tags_label = text2iob_label_with_document_level_exactly_match(transcripts[:boxes_num], entities)
+
                 elif self.iob_tagging_type == 'box_and_within_box_level':
                     # perform exactly tagging within specific box, box_level_entities parames will perform boex level tagging.
                     iob_tags_label = text2iob_label_with_box_and_within_box_exactly_level(box_entity_types[:boxes_num],
@@ -170,12 +183,12 @@ class Document:
     def relation_features_between_ij_nodes(self, boxes_num, i, min_area_boxes, relation_features, transcript_i,
                                            transcripts):
         '''
-        calculate node i and other nodes's initial relation features.
+        calculate node i and other nodes' initial relation features.
         :param boxes_num:
         :param i:
-        :param min_area_boxes:
-        :param relation_features:
-        :param transcript_i:
+        :param min_area_boxes: the min rectangle of (original) points.
+        :param relation_features: np.array, boxes_num x boxes_num x 6
+        :param transcript_i:  transcripts[i]
         :param transcripts:
         :return:
         '''
@@ -185,25 +198,30 @@ class Document:
             rect_output_i = min_area_boxes[i]
             rect_output_j = min_area_boxes[j]
 
+            # Centers of rect_of_box_i and rect_of_box_j.
             center_i = rect_output_i[0]
             center_j = rect_output_j[0]
 
             width_i, height_i = rect_output_i[1]
             width_j, height_j = rect_output_j[1]
 
+            # Center distances of boxes on x-axis.
             relation_features[i, j, 0] = np.abs(center_i[0] - center_j[0]) \
                 if np.abs(center_i[0] - center_j[0]) is not None else -1  # x_ij
 
+            # Center distances of boxes on y-axis.
             relation_features[i, j, 1] = np.abs(center_i[1] - center_j[1]) \
                 if np.abs(center_i[1] - center_j[1]) is not None else -1  # y_ij
 
             relation_features[i, j, 2] = width_i / (height_i) \
-                if width_i / (height_i) is not None else -1  # w_i/h_i
+                if height_i != 0 and width_i / (height_i) is not None else -1  # w_i/h_i
 
             relation_features[i, j, 3] = height_j / (height_i) \
-                if height_j / (height_i) is not None else -1  # h_j/h_i
+                if height_i != 0 and height_j / (height_i) is not None else -1  # h_j/h_i
+
             relation_features[i, j, 4] = width_j / (height_i) \
-                if width_j / (height_i) is not None else -1  # w_j/h_i
+                if height_i != 0 and width_j / (height_i) is not None else -1  # w_j/h_i
+
             relation_features[i, j, 5] = len(transcript_j) / (len(transcript_i)) \
                 if len(transcript_j) / (len(transcript_i)) is not None else -1  # T_j/T_i
 
@@ -247,7 +265,7 @@ def read_ocr_file_without_box_entity_type(filepath: str):
     return res
 
 
-def sort_box_with_list(data: List[Tuple], left_right_firset=True):
+def sort_box_with_list(data: List[Tuple], left_right_first=False):
     def compare_key(x):
         #  x is (index, points, transcription, type) or (index, points, transcription)
         points = x[1]
@@ -255,10 +273,10 @@ def sort_box_with_list(data: List[Tuple], left_right_firset=True):
                        dtype=np.float32)
         rect = cv2.minAreaRect(box)
         center = rect[0]
-        if left_right_firset:
-            return center[1], center[0]
-        else:
+        if left_right_first:
             return center[0], center[1]
+        else:
+            return center[1], center[0]
 
     data = sorted(data, key=compare_key)
     return data
@@ -270,6 +288,7 @@ def normalize_relation_features(feat: np.ndarray, width: int, height: int):
     feat[:, :, 0] = feat[:, :, 0] / width
     feat[:, :, 1] = feat[:, :, 1] / height
 
+    # The second graph to the 6th graph.
     for i in range(2, 6):
         feat_ij = feat[:, :, i]
         max_value = np.max(feat_ij)
@@ -365,6 +384,8 @@ def text2iob_label_with_box_and_within_box_exactly_level(annotation_box_types: L
         :return:
         '''
         matched = False
+
+        # Preprocess remove the punctuations and whitespaces.
         (src_seq, src_idx), (tgt_seq, _) = preprocess_transcripts(transcript), preprocess_transcripts(
             entity_exactly_value)
         src_len, tgt_len = len(src_seq), len(tgt_seq)
@@ -410,7 +431,7 @@ def preprocess_transcripts(transcripts: List[str]):
     e.g. source: xxxx hello ! world xxxx  target: xxxx hello world xxxx,
     we want to match 'hello ! world' with 'hello world' to decrease the impact of ocr bad result.
     :param transcripts:
-    :return:
+    :return: seq: the cleaned sequence, idx: the corresponding indices.
     '''
     seq, idx = [], []
     for index, x in enumerate(transcripts):

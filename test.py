@@ -3,7 +3,7 @@
 # @Created Time: 7/13/2020 10:26 PM
 
 import argparse, os
-import torch, cv2
+import torch
 from pathlib import Path
 
 from torch.utils.data.dataloader import DataLoader

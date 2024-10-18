@@ -114,13 +114,10 @@ class PICKDataset(Dataset):
             if self.training:
                 document = documents.Document(boxes_and_transcripts_file, image_file, self.resized_image_size,
                                               self.iob_tagging_type, entities_file, training=self.training
-                                              ,max_boxes_num=self.max_boxes_num,
-                                              max_transcript_len= self.max_transcript_len)
+                                              )
             else:
                 document = documents.Document(boxes_and_transcripts_file, image_file, self.resized_image_size,
                                               image_index=index, training=self.training
-                                              , max_boxes_num=self.max_boxes_num,
-                                              max_transcript_len=self.max_transcript_len
                                               )
             return document
         except Exception as e:
