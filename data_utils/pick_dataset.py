@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
 import pandas as pd
+import numpy as np
 
 from . import documents
 from .documents import Document
@@ -160,14 +161,14 @@ class BatchCollateFn(object):
         image_batch_tensor = torch.stack([self.trsfm(x.whole_image) for x in batch_list], dim=0).float()
 
         # relation features, (B, num_boxes, num_boxes, 6)
-        relation_features_padded_list = [F.pad(torch.FloatTensor(x.relation_features),
+        relation_features_padded_list = [F.pad(torch.FloatTensor(np.array(x.relation_features)),
                                                (0, 0, 0, max_boxes_num_batch - x.boxes_num,
                                                 0, max_boxes_num_batch - x.boxes_num))
                                          for i, x in enumerate(batch_list)]
         relation_features_batch_tensor = torch.stack(relation_features_padded_list, dim=0)
 
         # boxes coordinates,  (B, num_boxes, 8)
-        boxes_coordinate_padded_list = [F.pad(torch.FloatTensor(x.boxes_coordinate),
+        boxes_coordinate_padded_list = [F.pad(torch.FloatTensor(np.array(x.boxes_coordinate)),
                                               (0, 0, 0, max_boxes_num_batch - x.boxes_num))
                                         for i, x in enumerate(batch_list)]
         boxes_coordinate_batch_tensor = torch.stack(boxes_coordinate_padded_list, dim=0)

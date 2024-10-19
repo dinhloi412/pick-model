@@ -60,7 +60,7 @@
             "boxes_and_transcripts_folder": "boxes_and_transcripts1",
             "images_folder": "images1",
             "iob_tagging_type": "box_level",
-            "entities_folder":"entities1",
+            "entities_folder": "entities1",
             "resized_image_size": [
                 560,
                 784
@@ -75,7 +75,7 @@
             "boxes_and_transcripts_folder": "boxes_and_transcripts1",
             "images_folder": "images1",
             "iob_tagging_type": "box_level",
-            "entities_folder":"entities1",
+            "entities_folder": "entities1",
             "resized_image_size": [
                 560,
                 784
@@ -89,7 +89,7 @@
             "batch_size": 2,
             "shuffle": true,
             "drop_last": true,
-            "num_workers": 8,
+            "num_workers": 16,
             "pin_memory": true
         }
     },
@@ -99,7 +99,7 @@
             "batch_size": 4,
             "shuffle": false,
             "drop_last": false,
-            "num_workers": 8,
+            "num_workers": 16,
             "pin_memory": true
         }
     },
